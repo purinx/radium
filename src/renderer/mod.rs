@@ -4,8 +4,9 @@ use std::sync::Arc;
 use fontdue::{Font, FontSettings};
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::layout::{LayoutBox, PaintCmd};
@@ -83,6 +84,37 @@ impl ApplicationHandler for App {
     ) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+
+            WindowEvent::MouseWheel { delta, .. } => {
+                let dy = match delta {
+                    // LineDelta: positive y = scroll up (content moves up = see further down).
+                    // We negate so that scroll_y increases when scrolling down.
+                    MouseScrollDelta::LineDelta(_, y) => -y * 40.0,
+                    MouseScrollDelta::PixelDelta(pos) => -pos.y as f32,
+                };
+                self.scroll_by(dy);
+            }
+
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == ElementState::Pressed {
+                    let page = self.window.as_ref()
+                        .map(|w| w.inner_size().height as f32 / w.scale_factor() as f32 * 0.9)
+                        .unwrap_or(500.0);
+
+                    let dy: Option<f32> = match &event.logical_key {
+                        Key::Named(NamedKey::ArrowDown)  => Some(40.0),
+                        Key::Named(NamedKey::ArrowUp)    => Some(-40.0),
+                        Key::Named(NamedKey::PageDown)
+                        | Key::Named(NamedKey::Space)    => Some(page),
+                        Key::Named(NamedKey::PageUp)     => Some(-page),
+                        Key::Named(NamedKey::Home)       => { self.scroll_by(-f32::INFINITY); None }
+                        Key::Named(NamedKey::End)        => { self.scroll_by(f32::INFINITY);  None }
+                        _ => None,
+                    };
+                    if let Some(d) = dy { self.scroll_by(d); }
+                }
+            }
+
             WindowEvent::Resized(_) => {
                 if let Some(w) = &self.window {
                     w.request_redraw();
@@ -122,6 +154,31 @@ impl ApplicationHandler for App {
     }
 }
 
+// ── Scroll helpers ────────────────────────────────────────────────────────────
+
+impl App {
+    /// Maximum logical-pixel scroll offset for the current viewport.
+    fn max_scroll(&self) -> f32 {
+        let doc_h = self.boxes.iter()
+            .map(|b| b.y + b.height)
+            .fold(0.0_f32, f32::max);
+
+        let (viewport_h, scale) = self.window.as_ref()
+            .map(|w| (w.inner_size().height, w.scale_factor() as f32))
+            .unwrap_or((600, 1.0));
+
+        let viewport_logical = viewport_h as f32 / scale;
+        (doc_h - viewport_logical + 16.0).max(0.0)
+    }
+
+    fn scroll_by(&mut self, dy: f32) {
+        self.scroll_y = (self.scroll_y + dy).clamp(0.0, self.max_scroll());
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+}
+
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 fn render_frame(
@@ -133,6 +190,7 @@ fn render_frame(
     fonts: &FontSet,
     scroll_y: f32,
 ) {
+    // ── Document boxes ────────────────────────────────────────────────────
     for b in boxes {
         let x = b.x * scale;
         let y = (b.y - scroll_y) * scale;
@@ -166,6 +224,15 @@ fn render_frame(
                 );
             }
         }
+    }
+
+    // ── Scrollbar ─────────────────────────────────────────────────────────
+    let doc_h_phys = boxes.iter()
+        .map(|b| (b.y + b.height) * scale)
+        .fold(0.0_f32, f32::max);
+
+    if doc_h_phys > height as f32 {
+        draw_scrollbar(buffer, width, height, doc_h_phys, scroll_y * scale);
     }
 }
 
@@ -233,6 +300,37 @@ fn blit_hline(buffer: &mut [u32], buf_w: u32, buf_h: u32, x: u32, y: u32, width:
     let x_end = (x + width).min(buf_w);
     for px in x..x_end {
         buffer[(y * buf_w + px) as usize] = color;
+    }
+}
+
+/// Draw a minimal scrollbar on the right edge of the buffer.
+/// All coordinates are physical pixels.
+fn draw_scrollbar(buffer: &mut [u32], width: u32, height: u32, doc_h: f32, scroll_y: f32) {
+    const BAR_W: u32 = 6;
+    const MIN_THUMB: u32 = 24;
+    const TRACK_COLOR: u32 = 0xF0F0F0;
+    const THUMB_COLOR: u32 = 0xA8A8A8;
+
+    let bar_x = width.saturating_sub(BAR_W);
+
+    // Track (full height, light gray).
+    for row in 0..height {
+        for col in bar_x..width {
+            buffer[(row * width + col) as usize] = TRACK_COLOR;
+        }
+    }
+
+    // Thumb: height proportional to viewport / document ratio.
+    let ratio = (height as f32 / doc_h).min(1.0);
+    let thumb_h = ((height as f32 * ratio) as u32).max(MIN_THUMB);
+    let max_scroll = (doc_h - height as f32).max(1.0);
+    let thumb_y = ((scroll_y / max_scroll) * (height - thumb_h) as f32) as u32;
+    let thumb_y = thumb_y.min(height.saturating_sub(thumb_h));
+
+    for row in thumb_y..(thumb_y + thumb_h).min(height) {
+        for col in bar_x..width {
+            buffer[(row * width + col) as usize] = THUMB_COLOR;
+        }
     }
 }
 
