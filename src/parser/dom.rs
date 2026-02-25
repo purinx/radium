@@ -9,22 +9,6 @@ pub enum Node {
     Text(String),
 }
 
-impl Node {
-    pub fn print(&self, depth: usize) {
-        let indent = "  ".repeat(depth);
-        match self {
-            Node::Element { tag, children } => {
-                println!("{indent}<{tag}>");
-                for child in children {
-                    child.print(depth + 1);
-                }
-            }
-            Node::Text(content) => {
-                println!("{indent}\"{content}\"");
-            }
-        }
-    }
-}
 
 /// Tags that are always void (never have children).
 fn is_void(tag: &str) -> bool {
