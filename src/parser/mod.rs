@@ -1,6 +1,5 @@
 pub mod dom;
 
-use std::collections::HashMap;
 use std::iter::Peekable;
 use std::str::Chars;
 
@@ -9,7 +8,6 @@ pub enum Token {
     Doctype,
     OpenTag {
         name: String,
-        attrs: HashMap<String, String>,
         self_closing: bool,
     },
     CloseTag(String),
@@ -51,10 +49,9 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                         chars.next();
                         continue;
                     }
-                    let (attrs, self_closing) = read_attrs(&mut chars);
+                    let self_closing = skip_tag_body(&mut chars);
                     tokens.push(Token::OpenTag {
                         name: name.to_lowercase(),
-                        attrs,
                         self_closing,
                     });
                 }
@@ -84,88 +81,36 @@ fn read_name(chars: &mut Peekable<Chars<'_>>) -> String {
     name
 }
 
-fn read_attrs(chars: &mut Peekable<Chars<'_>>) -> (HashMap<String, String>, bool) {
-    let mut attrs = HashMap::new();
+/// Consume everything up to and including the closing `>`, returning whether
+/// the tag is self-closing (`/>`).
+fn skip_tag_body(chars: &mut Peekable<Chars<'_>>) -> bool {
     let mut self_closing = false;
+    let mut in_quote: Option<char> = None;
 
     loop {
-        skip_whitespace(chars);
-
-        match chars.peek() {
+        match chars.next() {
             None => break,
-            Some(&'>') => {
-                chars.next();
-                break;
-            }
-            Some(&'/') => {
-                chars.next();
-                if chars.peek() == Some(&'>') {
-                    chars.next();
+            Some(c) => match (in_quote, c) {
+                // Enter a quoted attribute value.
+                (None, '"') | (None, '\'') => in_quote = Some(c),
+                // Exit a quoted attribute value.
+                (Some(q), c) if c == q => in_quote = None,
+                // Detect self-closing marker outside quotes.
+                (None, '/') => {
+                    if chars.peek() == Some(&'>') {
+                        chars.next();
+                        self_closing = true;
+                        break;
+                    }
                 }
-                self_closing = true;
-                break;
-            }
-            _ => {}
-        }
-
-        let key = read_attr_name(chars);
-        if key.is_empty() {
-            chars.next(); // skip unknown char
-            continue;
-        }
-
-        skip_whitespace(chars);
-
-        if chars.peek() == Some(&'=') {
-            chars.next(); // consume '='
-            skip_whitespace(chars);
-            let value = read_attr_value(chars);
-            attrs.insert(key.to_lowercase(), value);
-        } else {
-            attrs.insert(key.to_lowercase(), String::new());
+                // End of tag.
+                (None, '>') => break,
+                _ => {}
+            },
         }
     }
 
-    (attrs, self_closing)
-}
-
-fn read_attr_name(chars: &mut Peekable<Chars<'_>>) -> String {
-    let mut name = String::new();
-    while let Some(&c) = chars.peek() {
-        if c == '=' || c == '>' || c == '/' || c.is_whitespace() {
-            break;
-        }
-        name.push(c);
-        chars.next();
-    }
-    name
-}
-
-fn read_attr_value(chars: &mut Peekable<Chars<'_>>) -> String {
-    match chars.peek().copied() {
-        Some('"') | Some('\'') => {
-            let quote = chars.next().unwrap();
-            let mut value = String::new();
-            for c in chars.by_ref() {
-                if c == quote {
-                    break;
-                }
-                value.push(c);
-            }
-            value
-        }
-        _ => {
-            let mut value = String::new();
-            while let Some(&c) = chars.peek() {
-                if c.is_whitespace() || c == '>' {
-                    break;
-                }
-                value.push(c);
-                chars.next();
-            }
-            value
-        }
-    }
+    self_closing
 }
 
 fn read_text(chars: &mut Peekable<Chars<'_>>) -> String {
@@ -183,15 +128,6 @@ fn read_text(chars: &mut Peekable<Chars<'_>>) -> String {
 fn skip_until(chars: &mut Peekable<Chars<'_>>, stop: char) {
     while let Some(&c) = chars.peek() {
         if c == stop {
-            break;
-        }
-        chars.next();
-    }
-}
-
-fn skip_whitespace(chars: &mut Peekable<Chars<'_>>) {
-    while let Some(&c) = chars.peek() {
-        if !c.is_whitespace() {
             break;
         }
         chars.next();
