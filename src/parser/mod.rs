@@ -1,3 +1,5 @@
+pub mod dom;
+
 use std::collections::HashMap;
 use std::iter::Peekable;
 use std::str::Chars;

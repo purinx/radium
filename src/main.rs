@@ -18,7 +18,8 @@ fn main() {
     });
 
     let tokens = parser::tokenize(&html);
-    for token in &tokens {
-        println!("{token:?}");
+    let nodes = parser::dom::build_tree(tokens);
+    for node in &nodes {
+        node.print(0);
     }
 }
