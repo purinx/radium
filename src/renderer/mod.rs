@@ -125,6 +125,14 @@ fn render_frame(
         }
 
         match &b.cmd {
+            PaintCmd::FillRect { color } => {
+                blit_rect(
+                    buffer, width, height,
+                    x as u32, y as u32,
+                    (b.width * scale) as u32, (b.height * scale) as u32,
+                    *color,
+                );
+            }
             PaintCmd::Text { content, font_size, color, .. } => {
                 blit_text(buffer, width, height, font, content, x, y, font_size * scale, *color);
             }
@@ -187,6 +195,16 @@ fn blit_text(
         }
 
         cursor_x += metrics.advance_width;
+    }
+}
+
+fn blit_rect(buffer: &mut [u32], buf_w: u32, buf_h: u32, x: u32, y: u32, w: u32, h: u32, color: u32) {
+    let x_end = (x + w).min(buf_w);
+    let y_end = (y + h).min(buf_h);
+    for row in y..y_end {
+        for col in x..x_end {
+            buffer[(row * buf_w + col) as usize] = color;
+        }
     }
 }
 

@@ -20,6 +20,9 @@ pub enum PaintCmd {
         italic: bool,
         color: u32,
     },
+    FillRect {
+        color: u32,
+    },
     HLine {
         color: u32,
     },
@@ -46,6 +49,8 @@ impl Default for Style {
 struct Ctx {
     pad: f32,
     width: f32,
+    /// Full viewport width — used for full-bleed heading backgrounds.
+    viewport_width: f32,
     boxes: Vec<LayoutBox>,
 }
 
@@ -57,6 +62,7 @@ pub fn layout(nodes: &[Node], viewport_width: f32) -> Vec<LayoutBox> {
     let mut ctx = Ctx {
         pad: PAGE_PAD,
         width: viewport_width - PAGE_PAD * 2.0,
+        viewport_width,
         boxes: Vec::new(),
     };
     let mut y = PAGE_PAD;
@@ -110,12 +116,13 @@ fn layout_element(tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: &S
         }
 
         // ── Headings ───────────────────────────────────────────────────────
-        "h1" => block(children, ctx, y, style, 16.0, 8.0,  Style { font_size: 32.0, bold: true, ..style.clone() }),
-        "h2" => block(children, ctx, y, style, 12.0, 6.0,  Style { font_size: 24.0, bold: true, ..style.clone() }),
-        "h3" => block(children, ctx, y, style, 10.0, 5.0,  Style { font_size: 20.0, bold: true, ..style.clone() }),
+        // bg color           border color
+        "h1" => heading(children, ctx, y, style, 32.0, 24.0, 16.0, Some(0xF6F8FA), Some(0xD1D9E0)),
+        "h2" => heading(children, ctx, y, style, 24.0, 20.0, 12.0, None,           Some(0xE8E8E8)),
+        "h3" => heading(children, ctx, y, style, 20.0, 16.0,  8.0, None,           None),
 
         // ── Paragraph ─────────────────────────────────────────────────────
-        "p" => block(children, ctx, y, style, 8.0, 8.0, style.clone()),
+        "p" => block(children, ctx, y, style, 0.0, 16.0, style.clone()),
 
         // ── Lists ──────────────────────────────────────────────────────────
         "ul" | "ol" => {
@@ -152,6 +159,50 @@ fn layout_element(tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: &S
 /// Lay out a block element with top/bottom margins.
 fn block(children: &[Node], ctx: &mut Ctx, y: f32, _parent: &Style, mt: f32, mb: f32, style: Style) -> f32 {
     let y = layout_children(children, ctx, y + mt, &style);
+    y + mb
+}
+
+/// Lay out a heading with optional full-bleed background and bottom border.
+fn heading(
+    children: &[Node],
+    ctx: &mut Ctx,
+    y: f32,
+    parent_style: &Style,
+    font_size: f32,
+    mt: f32,
+    mb: f32,
+    bg: Option<u32>,
+    border: Option<u32>,
+) -> f32 {
+    let style = Style { font_size, bold: true, ..parent_style.clone() };
+    let top = y + mt;
+
+    // Emit background BEFORE children so it appears behind the text.
+    if let Some(color) = bg {
+        let lh = line_height(font_size);
+        ctx.boxes.push(LayoutBox {
+            x: 0.0,
+            y: top - 6.0,
+            width: ctx.viewport_width,
+            height: lh + 12.0,
+            cmd: PaintCmd::FillRect { color },
+        });
+    }
+
+    let y = layout_children(children, ctx, top, &style);
+
+    // Emit bottom border AFTER children.
+    if let Some(color) = border {
+        ctx.boxes.push(LayoutBox {
+            x: ctx.pad,
+            y: y + 4.0,
+            width: ctx.width,
+            height: 1.0,
+            cmd: PaintCmd::HLine { color },
+        });
+        return y + 5.0 + mb; // 4px gap + 1px line
+    }
+
     y + mb
 }
 
