@@ -1,0 +1,22 @@
+[package]
+name = "radium"
+version = "0.1.0"
+edition = "2021"
+description = "A minimal HTML rendering engine with a native GUI window"
+
+[[bin]]
+name = "radium"
+path = "src/main.rs"
+
+[dependencies]
+# Window management & event loop
+winit = "0.30"
+
+# Software rasterizer (CPU-based 2D drawing)
+tiny-skia = "0.11"
+
+# Connect winit window surface to tiny-skia pixel buffer
+softbuffer = "0.4"
+
+[profile.release]
+opt-level = 3
