@@ -6,11 +6,41 @@
 <body>
   <h1>Hello, radium!</h1>
   <p>This is a <strong>bold</strong> and <em>italic</em> paragraph.</p>
+
+  <h2>Unordered List</h2>
   <ul>
-    <li>Item one</li>
-    <li>Item two</li>
+    <li>Plain item</li>
+    <li>Item with <strong>strong</strong> text</li>
+    <li>Nested list:
+      <ul>
+        <li>Sub-item one</li>
+        <li>Sub-item two</li>
+        <ul>
+          <li>Deep item</li>
+        </ul>
+      </ul>
+    </li>
+    <li>Item with a <a href="https://example.com">link</a></li>
   </ul>
+
+  <h2>Ordered List</h2>
+  <ol>
+    <li>First step</li>
+    <li>Second step</li>
+    <li>Third step</li>
+  </ol>
+
+  <h3>Mixed nesting</h3>
+  <ol>
+    <li>Alpha
+      <ul>
+        <li>Bullet inside number</li>
+      </ul>
+    </li>
+    <li>Beta</li>
+  </ol>
+
   <hr />
-  <a href="https://example.com">A link</a>
+  <p>End of document.</p>
 </body>
 </html>

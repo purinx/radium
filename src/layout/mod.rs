@@ -57,6 +57,8 @@ struct Ctx {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 const PAGE_PAD: f32 = 16.0;
+/// Width of the gutter reserved for list markers (bullet / number).
+const MARKER_INDENT: f32 = 24.0;
 
 pub fn layout(nodes: &[Node], viewport_width: f32) -> Vec<LayoutBox> {
     let mut ctx = Ctx {
@@ -126,10 +128,10 @@ fn layout_element(tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: &S
 
         // ── Lists ──────────────────────────────────────────────────────────
         "ul" | "ol" => {
-            let inner = Style { indent: style.indent + 20.0, ..style.clone() };
-            let y = y + 4.0;
+            let inner = Style { indent: style.indent + MARKER_INDENT, ..style.clone() };
+            let y = y + 8.0;
             let y = layout_list(tag, children, ctx, y, &inner);
-            y + 4.0
+            y + 8.0
         }
 
         // ── Inline elements (v1: treat as block, pass style through) ───────
@@ -218,6 +220,9 @@ fn layout_list(list_tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: 
     let mut y = y;
     let mut counter = 1usize;
 
+    // Nesting depth: how many MARKER_INDENT levels deep are we?
+    let depth = (style.indent / MARKER_INDENT).round() as usize;
+
     for child in children {
         let Node::Element { tag, children: li_children, .. } = child else { continue };
         if tag != "li" { continue }
@@ -225,30 +230,38 @@ fn layout_list(list_tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: 
         let marker = if list_tag == "ol" {
             format!("{}.", counter)
         } else {
-            "•".to_string()
+            // Different bullet symbol per nesting depth.
+            match depth {
+                1 => "•",
+                2 => "◦",
+                _ => "▪",
+            }
+            .to_string()
         };
         counter += 1;
 
-        // Marker sits one indent level back from the list content.
-        let marker_x = ctx.pad + style.indent - 20.0;
+        // Marker sits in the MARKER_INDENT gutter to the left of content.
+        let marker_x = ctx.pad + style.indent - MARKER_INDENT;
         let h = line_height(style.font_size);
         ctx.boxes.push(LayoutBox {
             x: marker_x,
             y,
-            width: 20.0,
+            width: MARKER_INDENT,
             height: h,
             cmd: PaintCmd::Text {
                 content: marker,
                 font_size: style.font_size,
                 bold: style.bold,
                 italic: style.italic,
-                color: style.color,
+                // Markers are slightly muted.
+                color: 0x555555,
             },
         });
 
+        // Layout the li's children (text nodes, inline elements, nested lists).
         let after = layout_children(li_children, ctx, y, style);
-        // Advance by at least one line (in case li_children was empty).
-        y = after.max(y + h) + 2.0;
+        // Advance by at least one line height, then add inter-item gap.
+        y = after.max(y + h) + 4.0;
     }
     y
 }
