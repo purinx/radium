@@ -164,7 +164,7 @@ fn block(children: &[Node], ctx: &mut Ctx, y: f32, _parent: &Style, mt: f32, mb:
     y + mb
 }
 
-/// Lay out a heading with optional full-bleed background and bottom border.
+/// Layout a heading with optional full-bleed background and bottom border.
 fn heading(
     children: &[Node],
     ctx: &mut Ctx,

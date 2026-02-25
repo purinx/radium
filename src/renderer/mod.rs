@@ -10,15 +10,36 @@ use winit::window::{Window, WindowId};
 
 use crate::layout::{LayoutBox, PaintCmd};
 
+// ── Font set ──────────────────────────────────────────────────────────────────
+
+/// The four faces of a typeface family.
+struct FontSet {
+    regular: Font,
+    bold: Font,
+    italic: Font,
+    bold_italic: Font,
+}
+
+impl FontSet {
+    fn get(&self, bold: bool, italic: bool) -> &Font {
+        match (bold, italic) {
+            (true,  true)  => &self.bold_italic,
+            (true,  false) => &self.bold,
+            (false, true)  => &self.italic,
+            (false, false) => &self.regular,
+        }
+    }
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 pub fn run(title: String, boxes: Vec<LayoutBox>) {
-    let font = load_font();
+    let fonts = load_font_set();
     let event_loop = EventLoop::new().unwrap();
     let mut app = App {
         title,
         boxes,
-        font,
+        fonts,
         window: None,
         context: None,
         surface: None,
@@ -32,7 +53,7 @@ pub fn run(title: String, boxes: Vec<LayoutBox>) {
 struct App {
     title: String,
     boxes: Vec<LayoutBox>,
-    font: Font,
+    fonts: FontSet,
     window: Option<Arc<Window>>,
     context: Option<Context<Arc<Window>>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
@@ -68,7 +89,6 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                // Extract owned values from window before mutably borrowing surface.
                 let (size, scale) = match &self.window {
                     Some(w) => (w.inner_size(), w.scale_factor() as f32),
                     None => return,
@@ -82,17 +102,15 @@ impl ApplicationHandler for App {
                 if let Some(surface) = &mut self.surface {
                     surface.resize(pw, ph).unwrap();
                     let mut buffer = surface.buffer_mut().unwrap();
-                    buffer.fill(0x00FFFFFF); // white background
+                    buffer.fill(0x00FFFFFF);
 
-                    // Free function: borrows self.boxes/font/scroll_y independently
-                    // from self.surface (NLL field disjointness).
                     render_frame(
                         &mut buffer,
                         size.width,
                         size.height,
                         scale,
                         &self.boxes,
-                        &self.font,
+                        &self.fonts,
                         self.scroll_y,
                     );
 
@@ -112,14 +130,13 @@ fn render_frame(
     height: u32,
     scale: f32,
     boxes: &[LayoutBox],
-    font: &Font,
+    fonts: &FontSet,
     scroll_y: f32,
 ) {
     for b in boxes {
         let x = b.x * scale;
         let y = (b.y - scroll_y) * scale;
 
-        // Skip boxes fully outside the viewport.
         if y + b.height * scale < 0.0 || y > height as f32 {
             continue;
         }
@@ -133,11 +150,20 @@ fn render_frame(
                     *color,
                 );
             }
-            PaintCmd::Text { content, font_size, color, .. } => {
-                blit_text(buffer, width, height, font, content, x, y, font_size * scale, *color);
+            PaintCmd::Text { content, font_size, bold, italic, color } => {
+                let font = fonts.get(*bold, *italic);
+                blit_text(
+                    buffer, width, height,
+                    font, content,
+                    x, y, font_size * scale, *color,
+                );
             }
             PaintCmd::HLine { color } => {
-                blit_hline(buffer, width, height, x as u32, y as u32, (b.width * scale) as u32, *color);
+                blit_hline(
+                    buffer, width, height,
+                    x as u32, y as u32,
+                    (b.width * scale) as u32, *color,
+                );
             }
         }
     }
@@ -145,7 +171,6 @@ fn render_frame(
 
 // ── Glyph blitting ────────────────────────────────────────────────────────────
 
-/// Render a string into the pixel buffer starting at (x, y) top-left.
 fn blit_text(
     buffer: &mut [u32],
     buf_w: u32,
@@ -157,7 +182,6 @@ fn blit_text(
     font_size: f32,
     color: u32,
 ) {
-    // Ascent gives us the baseline position relative to the box top.
     let ascent = font
         .horizontal_line_metrics(font_size)
         .map(|m| m.ascent)
@@ -169,9 +193,6 @@ fn blit_text(
     for ch in text.chars() {
         let (metrics, bitmap) = font.rasterize(ch, font_size);
 
-        // Top-left of the glyph bitmap in screen coordinates.
-        // ymin = offset from baseline to bottom edge of bitmap (positive = above baseline).
-        // So top = baseline - ymin - height  (y increases downward on screen).
         let gx = (cursor_x + metrics.xmin as f32) as i32;
         let gy = (baseline_y - metrics.ymin as f32 - metrics.height as f32) as i32;
 
@@ -181,14 +202,11 @@ fn blit_text(
                 if alpha == 0 {
                     continue;
                 }
-
                 let px = gx + col as i32;
                 let py = gy + row as i32;
-
                 if px < 0 || py < 0 || px >= buf_w as i32 || py >= buf_h as i32 {
                     continue;
                 }
-
                 let idx = (py as u32 * buf_w + px as u32) as usize;
                 buffer[idx] = alpha_blend(buffer[idx], color, alpha);
             }
@@ -218,41 +236,80 @@ fn blit_hline(buffer: &mut [u32], buf_w: u32, buf_h: u32, x: u32, y: u32, width:
     }
 }
 
-/// Alpha-blend `fg` over `bg`.  Both use 0x00RRGGBB.  `alpha` is 0–255.
 fn alpha_blend(bg: u32, fg: u32, alpha: u32) -> u32 {
     let ia = 255 - alpha;
     let r = ((fg >> 16 & 0xFF) * alpha + (bg >> 16 & 0xFF) * ia) / 255;
-    let g = ((fg >> 8 & 0xFF) * alpha + (bg >> 8 & 0xFF) * ia) / 255;
-    let b = ((fg & 0xFF) * alpha + (bg & 0xFF) * ia) / 255;
+    let g = ((fg >>  8 & 0xFF) * alpha + (bg >>  8 & 0xFF) * ia) / 255;
+    let b = ((fg       & 0xFF) * alpha + (bg       & 0xFF) * ia) / 255;
     (r << 16) | (g << 8) | b
 }
 
 // ── Font loading ──────────────────────────────────────────────────────────────
 
-fn load_font() -> Font {
-    let candidates: &[&str] = &[
-        "./assets/font.ttf",
-        // macOS (Supplemental fonts, installed by default)
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/System/Library/Fonts/Supplemental/Verdana.ttf",
-        "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf",
-        "/Library/Fonts/Arial.ttf",
-        // Linux
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans.ttf",
-    ];
-
+fn try_load_bytes(candidates: &[&str]) -> Option<Vec<u8>> {
     for path in candidates {
         if let Ok(data) = std::fs::read(path) {
             eprintln!("radium: loaded font from {path}");
-            return Font::from_bytes(data.as_slice(), FontSettings::default())
-                .expect("Failed to parse font file");
+            return Some(data);
         }
     }
+    None
+}
 
-    panic!(
-        "No font found. Place a TTF font at ./assets/font.ttf\nTried: {}",
-        candidates.join(", ")
-    );
+fn make_font(data: &[u8]) -> Font {
+    Font::from_bytes(data, FontSettings::default()).expect("Failed to parse font file")
+}
+
+fn load_font_set() -> FontSet {
+    // Regular — required.
+    let regular_data = try_load_bytes(&[
+        "./assets/font.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Verdana.ttf",
+        "/Library/Fonts/Arial.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    ])
+    .expect("No font found. Place a TTF font at ./assets/font.ttf");
+
+    // Variants — fall back to regular if not found.
+    let bold_data = try_load_bytes(&[
+        "./assets/font-bold.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+    ]);
+
+    let italic_data = try_load_bytes(&[
+        "./assets/font-italic.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Italic.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Oblique.ttf",
+    ]);
+
+    let bold_italic_data = try_load_bytes(&[
+        "./assets/font-bold-italic.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-BoldOblique.ttf",
+    ]);
+
+    let regular    = make_font(&regular_data);
+    let bold       = bold_data.as_deref()
+                              .map(make_font)
+                              .unwrap_or_else(|| make_font(&regular_data));
+    let italic     = italic_data.as_deref()
+                                .map(make_font)
+                                .unwrap_or_else(|| make_font(&regular_data));
+    let bold_italic = bold_italic_data.as_deref()
+                                      .map(make_font)
+                                      // Prefer bold face over regular as fallback.
+                                      .or_else(|| bold_data.as_deref().map(make_font))
+                                      .unwrap_or_else(|| make_font(&regular_data));
+
+    FontSet { regular, bold, italic, bold_italic }
 }
