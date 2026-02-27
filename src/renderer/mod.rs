@@ -208,12 +208,12 @@ fn render_frame(
                     *color,
                 );
             }
-            PaintCmd::Text { content, font_size, bold, italic, color } => {
+            PaintCmd::Text { content, font_size, bold, italic, color, underline } => {
                 let font = fonts.get(*bold, *italic);
                 blit_text(
                     buffer, width, height,
                     font, content,
-                    x, y, font_size * scale, *color,
+                    x, y, font_size * scale, *color, *underline,
                 );
             }
             PaintCmd::HLine { color } => {
@@ -248,6 +248,7 @@ fn blit_text(
     y: f32,
     font_size: f32,
     color: u32,
+    underline: bool,
 ) {
     let ascent = font
         .horizontal_line_metrics(font_size)
@@ -280,6 +281,12 @@ fn blit_text(
         }
 
         cursor_x += metrics.advance_width;
+    }
+
+    if underline && cursor_x > x {
+        let uy = (baseline_y + 2.0) as u32;
+        let width = (cursor_x - x) as u32;
+        blit_hline(buffer, buf_w, buf_h, x as u32, uy, width, color);
     }
 }
 

@@ -19,6 +19,7 @@ pub enum PaintCmd {
         bold: bool,
         italic: bool,
         color: u32,
+        underline: bool,
     },
     FillRect {
         color: u32,
@@ -36,13 +37,14 @@ struct Style {
     bold: bool,
     italic: bool,
     color: u32,
+    underline: bool,
     /// Extra left indent relative to the page margin (for list nesting).
     indent: f32,
 }
 
 impl Default for Style {
     fn default() -> Self {
-        Style { font_size: 16.0, bold: false, italic: false, color: 0x000000, indent: 0.0 }
+        Style { font_size: 16.0, bold: false, italic: false, color: 0x000000, underline: false, indent: 0.0 }
     }
 }
 
@@ -99,6 +101,7 @@ fn layout_node(node: &Node, ctx: &mut Ctx, y: f32, style: &Style) -> f32 {
                     bold: style.bold,
                     italic: style.italic,
                     color: style.color,
+                    underline: style.underline,
                 },
             });
             y + h
@@ -119,8 +122,8 @@ fn layout_element(tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: &S
 
         // ── Headings ───────────────────────────────────────────────────────
         // bg color           border color
-        "h1" => heading(children, ctx, y, style, 32.0, 24.0, 16.0, Some(0xF6F8FA), Some(0xD1D9E0)),
-        "h2" => heading(children, ctx, y, style, 24.0, 20.0, 12.0, None,           Some(0xE8E8E8)),
+        "h1" => heading(children, ctx, y, style, 32.0, 24.0, 16.0, None, None),
+        "h2" => heading(children, ctx, y, style, 24.0, 20.0, 12.0, None,           None),
         "h3" => heading(children, ctx, y, style, 20.0, 16.0,  8.0, None,           None),
 
         // ── Paragraph ─────────────────────────────────────────────────────
@@ -137,7 +140,8 @@ fn layout_element(tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: &S
         // ── Inline elements (v1: treat as block, pass style through) ───────
         "strong" => layout_children(children, ctx, y, &Style { bold: true, ..style.clone() }),
         "em"     => layout_children(children, ctx, y, &Style { italic: true, ..style.clone() }),
-        "a" | "span" => layout_children(children, ctx, y, style),
+        "a"    => layout_children(children, ctx, y, &Style { color: 0x0000EE, underline: true, ..style.clone() }),
+        "span" => layout_children(children, ctx, y, style),
 
         // ── Void ──────────────────────────────────────────────────────────
         "br" => y + line_height(style.font_size),
@@ -255,6 +259,7 @@ fn layout_list(list_tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: 
                 italic: style.italic,
                 // Markers are slightly muted.
                 color: 0x555555,
+                underline: false,
             },
         });
 
