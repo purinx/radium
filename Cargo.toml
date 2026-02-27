@@ -9,6 +9,9 @@ name = "radium"
 path = "src/main.rs"
 
 [dependencies]
+# Image decoding (PNG, JPEG)
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
 # Window management & event loop
 winit = "0.30"
 

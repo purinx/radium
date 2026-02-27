@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
 use crate::parser::dom::Node;
 
 // ── Public types ─────────────────────────────────────────────────────────────
@@ -27,6 +30,12 @@ pub enum PaintCmd {
     HLine {
         color: u32,
     },
+    Image {
+        /// Raw RGBA8 pixel data.
+        data: Vec<u8>,
+        img_width: u32,
+        img_height: u32,
+    },
 }
 
 // ── Internal style state ──────────────────────────────────────────────────────
@@ -53,6 +62,8 @@ struct Ctx {
     width: f32,
     /// Full viewport width — used for full-bleed heading backgrounds.
     viewport_width: f32,
+    /// Base directory for resolving relative paths (e.g. image src).
+    base_dir: PathBuf,
     boxes: Vec<LayoutBox>,
 }
 
@@ -62,11 +73,12 @@ const PAGE_PAD: f32 = 16.0;
 /// Width of the gutter reserved for list markers (bullet / number).
 const MARKER_INDENT: f32 = 24.0;
 
-pub fn layout(nodes: &[Node], viewport_width: f32) -> Vec<LayoutBox> {
+pub fn layout(nodes: &[Node], viewport_width: f32, base_dir: &Path) -> Vec<LayoutBox> {
     let mut ctx = Ctx {
         pad: PAGE_PAD,
         width: viewport_width - PAGE_PAD * 2.0,
         viewport_width,
+        base_dir: base_dir.to_path_buf(),
         boxes: Vec::new(),
     };
     let mut y = PAGE_PAD;
@@ -106,11 +118,11 @@ fn layout_node(node: &Node, ctx: &mut Ctx, y: f32, style: &Style) -> f32 {
             });
             y + h
         }
-        Node::Element { tag, children, .. } => layout_element(tag, children, ctx, y, style),
+        Node::Element { tag, attrs, children } => layout_element(tag, attrs, children, ctx, y, style),
     }
 }
 
-fn layout_element(tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: &Style) -> f32 {
+fn layout_element(tag: &str, attrs: &HashMap<String, String>, children: &[Node], ctx: &mut Ctx, y: f32, style: &Style) -> f32 {
     match tag {
         // ── Skip entirely ──────────────────────────────────────────────────
         "head" | "title" | "script" | "style" | "meta" | "link" => y,
@@ -121,10 +133,9 @@ fn layout_element(tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: &S
         }
 
         // ── Headings ───────────────────────────────────────────────────────
-        // bg color           border color
         "h1" => heading(children, ctx, y, style, 32.0, 24.0, 16.0, None, None),
-        "h2" => heading(children, ctx, y, style, 24.0, 20.0, 12.0, None,           None),
-        "h3" => heading(children, ctx, y, style, 20.0, 16.0,  8.0, None,           None),
+        "h2" => heading(children, ctx, y, style, 24.0, 20.0, 12.0, None, None),
+        "h3" => heading(children, ctx, y, style, 20.0, 16.0,  8.0, None, None),
 
         // ── Paragraph ─────────────────────────────────────────────────────
         "p" => block(children, ctx, y, style, 0.0, 16.0, style.clone()),
@@ -157,9 +168,47 @@ fn layout_element(tag: &str, children: &[Node], ctx: &mut Ctx, y: f32, style: &S
             mid + 1.0 + 8.0
         }
 
+        // ── Image ─────────────────────────────────────────────────────────
+        "img" => layout_img(attrs, ctx, y),
+
         // ── Unknown: transparent ───────────────────────────────────────────
         _ => layout_children(children, ctx, y, style),
     }
+}
+
+fn layout_img(attrs: &HashMap<String, String>, ctx: &mut Ctx, y: f32) -> f32 {
+    let src = match attrs.get("src") {
+        Some(s) => s,
+        None => return y,
+    };
+
+    let path = ctx.base_dir.join(src);
+    let img = match image::open(&path) {
+        Ok(img) => img,
+        Err(e) => {
+            eprintln!("radium: failed to load image {}: {e}", path.display());
+            return y;
+        }
+    };
+
+    let rgba = img.to_rgba8();
+    let (img_w, img_h) = rgba.dimensions();
+    let data = rgba.into_raw();
+
+    // Scale down proportionally if wider than the content area.
+    let display_w = ctx.width.min(img_w as f32);
+    let scale = display_w / img_w as f32;
+    let display_h = img_h as f32 * scale;
+
+    ctx.boxes.push(LayoutBox {
+        x: ctx.pad,
+        y,
+        width: display_w,
+        height: display_h,
+        cmd: PaintCmd::Image { data, img_width: img_w, img_height: img_h },
+    });
+
+    y + display_h + 8.0
 }
 
 /// Lay out a block element with top/bottom margins.

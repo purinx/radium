@@ -223,6 +223,14 @@ fn render_frame(
                     (b.width * scale) as u32, *color,
                 );
             }
+            PaintCmd::Image { data, img_width, img_height } => {
+                blit_image(
+                    buffer, width, height,
+                    x, y,
+                    (b.width * scale) as u32, (b.height * scale) as u32,
+                    data, *img_width, *img_height,
+                );
+            }
         }
     }
 
@@ -296,6 +304,54 @@ fn blit_rect(buffer: &mut [u32], buf_w: u32, buf_h: u32, x: u32, y: u32, w: u32,
     for row in y..y_end {
         for col in x..x_end {
             buffer[(row * buf_w + col) as usize] = color;
+        }
+    }
+}
+
+/// Blit a scaled RGBA8 image using nearest-neighbor sampling.
+/// `dst_x`/`dst_y` are physical-pixel coordinates (may be negative when scrolled).
+fn blit_image(
+    buffer: &mut [u32],
+    buf_w: u32,
+    buf_h: u32,
+    dst_x: f32,
+    dst_y: f32,
+    dst_w: u32,
+    dst_h: u32,
+    data: &[u8],
+    src_w: u32,
+    src_h: u32,
+) {
+    if dst_w == 0 || dst_h == 0 || src_w == 0 || src_h == 0 {
+        return;
+    }
+    let dst_x = dst_x as i32;
+    let dst_y = dst_y as i32;
+
+    for row in 0..dst_h {
+        let py = dst_y + row as i32;
+        if py < 0 || py >= buf_h as i32 {
+            continue;
+        }
+        let src_row = ((row as f32 / dst_h as f32) * src_h as f32) as u32;
+        let src_row = src_row.min(src_h - 1);
+
+        for col in 0..dst_w {
+            let px = dst_x + col as i32;
+            if px < 0 || px >= buf_w as i32 {
+                continue;
+            }
+            let src_col = ((col as f32 / dst_w as f32) * src_w as f32) as u32;
+            let src_col = src_col.min(src_w - 1);
+
+            let src_idx = ((src_row * src_w + src_col) * 4) as usize;
+            let r = data[src_idx]     as u32;
+            let g = data[src_idx + 1] as u32;
+            let b = data[src_idx + 2] as u32;
+            let a = data[src_idx + 3] as u32;
+
+            let buf_idx = (py as u32 * buf_w + px as u32) as usize;
+            buffer[buf_idx] = alpha_blend(buffer[buf_idx], (r << 16) | (g << 8) | b, a);
         }
     }
 }
