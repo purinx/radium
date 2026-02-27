@@ -7,10 +7,6 @@ Parses an HTML file and displays it in a native GUI window.
 radium index.html
 ```
 
-## Status
-
-Early design phase. Nothing renders yet.
-
 ## Build
 
 ```sh

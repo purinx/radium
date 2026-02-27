@@ -63,22 +63,6 @@ v1 is purely block-level (no inline flow, no floats).
 
 ---
 
-## Milestone Plan
-
-| # | Milestone | Description |
-|---|-----------|-------------|
-| 1 | **Window opens** | `winit` window launches, fills with white |
-| 2 | **Parser skeleton** | Tokenizer produces tokens from a file |
-| 3 | **DOM tree** | Token stream → Node tree, printed to stdout |
-| 4 | **Layout pass** | DOM → list of `Box` structs with positions |
-| 5 | **Text rendering** | Draw text strings into the pixel buffer |
-| 6 | **Block elements** | `h1`–`h3`, `p`, `div` render with spacing |
-| 7 | **Lists** | `ul`/`ol`/`li` with bullets/numbers |
-| 8 | **Inline styles** | `strong` (bold), `em` (italic) |
-| 9 | **Scrolling** | Scroll long pages with mouse wheel |
-
----
-
 ## Non-Goals (v1)
 
 - CSS parsing or styling
